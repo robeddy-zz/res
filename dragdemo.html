@@ -1,0 +1,612 @@
+<!-- source code for http://acmetoolanddie.com/demo/newdemo.html !>
+
+<!DOCTYPE html>
+<html >
+<head>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <META NAME="ROBOTS" CONTENT="NOINDEX, NOFOLLOW"> 
+  <title> demo</title>
+  <link rel="stylesheet" href="scripts/dist/ui/1.11.4/themes/smoothness/jquery-ui.css"> 
+  <link rel="stylesheet" href="scripts/dist/ui/1.11.4/themes/smoothness/jquery-ui.theme.css">
+
+  <script src="scripts/dist/ui/1.11.4/external/jquery/jquery.js"></script>
+  <script src="scripts/dist/ui/1.11.4/jquery-ui.js"></script>
+  
+  <script src="scripts/data3.js"></script> <!-- data3.js contains saved positions, etc --> 
+  
+  <script type="text/javascript" src="http://d3js.org/d3.v3.js"></script>
+  
+  <script src="scripts/dist/jquery.contextMenu.min.js" type="text/javascript"></script>
+  <link href="scripts/dist/jquery.contextMenu.min.css" rel="stylesheet" type="text/css" />
+<table><tr><td valign=top width=400><span style="font-family:arial"><b>Demo</b></span><br>Below, drag and drop a widget to the window on right.
+Then you may connect arrows to simulate connecting an actual data pipeline. see also <a href=div.html>Repositionable Divs</a><br><br> An example of such is pictured here -><br><br>
+Doubleclick on lines or widgets to delete selected items.  You may drag and rearrange the widgets after connecting.
+<br>
+<span style="font-size:10px">(c) 2016 Charles Shoopak</span>
+</td><td><img width=400 src=example1.jpg></td></tr></table>
+<hr width=800 align=left>
+   <!--  <script src="http://code.jquery.com/jquery-1.10.2.js"></script> -->
+   <!--  <script type="text/javascript" src="http://d3js.org/d3.v3.min.js"></script> --> 
+  
+</head>
+
+<body style="overflow:hidden" > <!-- hide overflow to eliminate scrolls which messes up getBoundingClientRect -->
+<div style="font-family:verdana">New Drag and Drop Data Processing on Browser - Proof of Concept</div>
+
+    <div style="overflow:hidden;height:16px"> <!-- necessary combo for Firefox vs. Safari Chrome, or hello text misplaced -->
+          
+    <script type="text/javascript">
+
+    /**
+    1) change arrows to circle with centered background image, easier to position start and stop of connecting lines
+    just need to start nearby (like neighborhood play in baseball), line still gets positioned exacatly on point.    
+    2) reposition mouse on click to the arrowpoint tip, to avoid the dragging of whole graph problem
+    
+    New
+    12/13/2015
+    mouse up on menu wihtout dragging causes menu to move to graph
+    mouseover arrow causes line to reconnect even if not being dragged
+    1/17/2016
+    Error in console, null in remove line, possibly try catch it, or actually figure out and if out on initial load
+    1/21/2016 
+    check if mouseup over arrow will fix problem of bigger line negating mouseover
+    
+    Widgets need to bounce back from any side or outside area if not new.  Exception possibly if dragged to garbage?
+    		
+    Delete a widget, delete attached lines
+    
+    !!!!Weird bug when deleting widgets, space between page title and graph panel collapses.
+    */
+
+/*********************************  SVG area *******************************
+***************************************************************************/
+ 
+    var svgHeight = 300
+    
+    var svg = d3.select("body")
+		.append("svg")
+		.attr("width", 800)
+		.attr("height", svgHeight)
+		.on("mouseup", removeline);
+
+   	/***********************************************
+   	* don't forget distinction of naming convention
+   	* svg element is "#myRect" + index  line 221
+   	* js object is "widget" + windex    line 222
+   	************************************************/
+   	
+/***************************************************************************
+*                                                                          *
+*                              DRAG LAND                                   *
+*                                                                          *
+***************************************************************************/  	
+    	
+  	//Drag handler for svg elements set in element creator, .call of makeArrowWidget
+  	var dragSrcWidget = d3.behavior.drag()
+  	    .on("dragstart", function() {
+  	    	if(d3.select(this).attr("type")=="arrow"){
+  	    		return false;  //helps prevent ghost image drag presumably
+  	    	}
+  	    })
+  	    .on("drag", dragmoveSrcWidget)
+  	    .on("dragend", function() {       	
+  	        if(!draggingNew){ //if not a new widget, bounce it back inside panel
+  	        	var wx = d3.select(this).node().getBoundingClientRect().left
+            	var wy = d3.select(this).node().getBoundingClientRect().top
+             	if(wx < (menuBorderX +5) && wx > 25 ){
+             	   	wx = menuBorderX
+             		d3.select(this).attr("transform", "translate(" + (wx + 5) + "," + (wy-W_HEIGHT/2)+")")
+             	}
+  	        }  	        
+  	        if(!pastMenu && draggingNew ){ //if new and not past border, remove it
+  	        	d3.select("#myRect" + windex).remove();
+  	        	removeArrows(newWidget["widget" + windex])
+  	        }
+  	        pastMenu = false; //past dragend must be false, pastMenu applies only to new clones
+  	    	draggingNew = false; // past dragend must be false
+  	    });
+  	
+  	//Drag move handler called by parent drag handler dragSrcWidget, for both new and created widgets 
+  	function dragmoveSrcWidget(d) {
+  	    var x = d3.event.x;
+  	    var y = d3.event.y;
+  	    var passY = d3.select(this).node().getBoundingClientRect().top
+  	    var widgetX = d3.select(this).node().getBoundingClientRect().left 
+  	    //widgetAttr = d3.select(this).node().attributes.widget.value
+  	    widgetAttr = d3.select(this).attr("widget")
+  	    if(draggingNew == false && widgetX < (menuBorderX - W_WIDTH)){//clone if this is a menu widget   	    	
+  	    	windex++
+  	    	newWidget["widget" + windex] = cloneWidget(newWidget[widgetAttr]);
+  	    	rectangle = setupArrowWidgetDefault(windex, newWidget[widgetAttr], passY - Y_OFFSET, dragSrcWidget)
+  	    	draggingNew = true;
+  	    }
+  	    if(draggingNew){//if new clone, drag the clone, also subtract half height and width to center the cursor over object
+  	   		rectangle.attr("transform", "translate(" + (x-W_WIDTH/2) + "," + (y-W_HEIGHT/2) + ")");
+  	    	dragArrows(newWidget["widget" + windex], x, y)
+  	    }else if(widgetX > (menuBorderX)){// else existing clone in graph, drag this
+  	    	d3.select(this).attr("transform", "translate(" + (x-W_WIDTH/2) + "," + (y-W_HEIGHT/2) + ")");
+  	    	gwidget = d3.select(this).attr("widget");
+  	    	dragArrows(newWidget[gwidget], x , y);
+  	    }
+  	    if(x> (menuBorderX + W_WIDTH/2 + EXTRA_X)){
+  	    	pastMenu = true;
+  	    }else{
+  	    	pastMenu = false
+  	    }      	   
+  	}
+  	
+	/******************** Drag Arrows to Follow Their Widget ******************/
+  	function dragArrows(gw, x, y){ //passed widget and position
+  	//outArrow and inArrow are application objects, myArrow is svg object	
+      for(numOut=0;numOut<gw.outCount;numOut++){ // out arrows WIDGET->
+    	  outArrow = gw.outArrows[numOut]//arrows added to widget's array in Arrow constructor
+    	  outArrow.myArrow.attr("transform", "translate(" + (x + W_WIDTH/2) + "," + (y-5) + ")");
+    	  outArrow.myArrow.attr("xpos", x + W_WIDTH/2); //TODO: are coordinates ever used by object?
+    	  outArrow.myArrow.attr("ypos", y-5 )
+    	  //  outArrow.myArrow.attr("type", "arrow")
+    	  outArrow.myArrow
+      		.on("mousedown", function() { //TODO: on events set here vs. constructor
+	    		  d3.event.stopPropagation();
+	    	})
+    	    .on("mousedown", arrowMouseClickOut)
+    	    .on("mousedown.drag", null)
+    	   dragLinePoints(outArrow.outLines, x + W_WIDTH/2 + 13, y-5 + 7.5, false)
+      }
+  	
+	  for(numIn=0;numIn<gw.inCount;numIn++){ // in arrows ->WIDGET
+	  	  inArrow = gw.inArrows[numIn] //arrows added to widget's array in Arrow constructor
+    	  inArrow.myArrow.attr("transform", "translate(" + (x - W_WIDTH/2 -10) + "," + (y-5) + ")");
+	   	  inArrow.myArrow.attr("xpos", x - W_WIDTH/2 - 10);
+	   	  inArrow.myArrow.attr("ypos", y-5 )
+	      // inArrow.myArrow.attr("type", "arrow")
+	      inArrow.myArrow
+	      .on("mouseup", function() {
+	    	 d3.event.stopPropagation();
+	      })
+    	  .on("mouseover", positionEndpoint)
+    	  .on("mousedown", positionEndpoint)
+    	  dragLinePoints(inArrow.inLines, x-W_WIDTH/2 - 10, y-5 + 7.5, true)	    	  
+      }
+  	}
+  	
+  	/*************** drag a line's endpoint along with arrow **********/
+  	//passed array of lines, position, flag to reposition start or end of line
+  	function dragLinePoints(lines, x, y, isEnd){ 
+  		for(i=0;i<lines.length;i++){
+  			//alert(lines.length + " " + x + " " + y + " " + end + " " + lines[i])
+  			var line = lines[i]
+  			var	xvar = isEnd?"x2":"x1"
+  			var	yvar = isEnd?"y2":"y1" 			   			
+  			line.attr(xvar, x);
+  			line.attr(yvar, y);
+      		line.on("mousedown", function() { //TODO: on events set here vs. constructor, had tried mouseclick
+      			confirmRemoveLine(this);
+      			//alert("mouse down on line from drag land");
+	    	})
+  		}
+  	}
+
+  	
+/***************************************************************************
+*                                                                          *
+*                              ARROW LAND                                  *
+*                                                                          *
+***************************************************************************/  
+
+	var arrowPoints = "0,5, 5,5, 5,0, 12.5,7.5, 5,15, 5,10, 0,10";
+	// var arrowPoints = "0,0, 0,30 30,30, 30, 0"; //rectangle for testing
+	var arrowFill = "blue";
+	var arrowIndex = 0; //id of arrows
+	var arrows = []; //holds arrow js objects
+   	
+   	//Called only from the SVG Widget constructor, new Widget(...) not the js object, GenericWidget
+	function Arrow(widgetKey, connectedArrow, inArrow, index){
+		this.myArrow = svg.append("polygon")
+			.attr("id", "arrow" + index)
+		    .style("stroke", "black")  // colour the line
+		    .style("fill", arrowFill)     // remove any fill colour
+		    .attr("points", arrowPoints)
+		    .attr("type", "arrow")
+		this.widgetKey = widgetKey
+		this.connectedArrow = connectedArrow
+		this.inArrow = inArrow
+		this.index = index;
+		if(inArrow){				
+			newWidget[widgetKey].inArrows.push(this)
+		}else{
+			newWidget[widgetKey].outArrows.push(this)
+		}
+		this.inLines = [];
+		this.outLines = [];
+		    	arrows[index] = this;
+		return this.myArrow;
+	}
+	
+	//Called from drag handler when widget is removed
+  	function removeArrows(gw){ //gw is GenericWidget being removed
+		for(numIn=0;numIn<gw.inCount;numIn++){
+			inArrow = gw.inArrows[numIn];
+			removeArrowLines(inArrow.inLines);
+			d3.select("#arrow" + inArrow.index).remove();
+		}
+		for(numOut=0;numOut<gw.outCount;numOut++){
+			console.log("IN *** REMOVE ARROW OUT outArrow = " + outArrow + " index = " + outArrow.index)
+			outArrow = gw.outArrows[numOut]
+			removeArrowLines(outArrow.outLines);
+			d3.select("#arrow" + outArrow.index).remove();
+		}
+	}
+	
+	function removeArrowLines(lines){
+		console.log("in remove ArrowLines, length = " + lines.length);
+		for(i=0;i<lines.length;i++){
+			id=lines[i].attr("id");
+			d3.select("#" + id).remove();
+		}
+	}
+
+	
+/***************************************************************************
+*                                                                          *
+*                             WIDGET LAND                                  *
+*                                                                          *
+***************************************************************************/
+	
+	/*************** Widget *****************/
+    
+    function GenericWidget( type, inCount, outCount, backgroundImg, text){
+		this.type = type;
+		this.inCount = inCount; //number of arrows needed upon creation
+		this.outCount = outCount; //number of arrows needed upon creation
+		this.backgroundImg = backgroundImg;
+		this.text = text;
+		this.inArrows =  [];
+		this.outArrows =  [];
+
+		return this;
+	}
+    
+    /********** Widget Copy Constructor *******/
+    
+    function cloneWidget(xw) {
+        return new GenericWidget (xw.type, xw.inCount, xw.outCount, xw.backgroundImg);
+    }
+    
+   	var newWidget = [] //Hash of cloned widget 
+	
+    /********* Widget background images *********/
+    var tableImg1 =	'mediumfileicon.png' //background images for widget rectangles
+   	var tableImg2 =	'mediumfileicon.png'
+	var widgetImg =	'medorigwidget.png'
+	var myImages = [tableImg1, tableImg2, widgetImg];  //[] array {} set {name:value} map
+	var myPat = "myPat" // prefix for pattern ids, ie background images
+		
+	/*********** Menu Widget Creation **********/
+	var gWidgets = []; //hash of widget types
+	gWidgets["readTable"] = new GenericWidget("readTable", 0, 1, tableImg1, "Read table");
+	gWidgets["writeTable"] = new GenericWidget("writeTable", 1, 0, tableImg2, "Write table");
+	gWidgets["widget"] = new GenericWidget("widget", 1, 1, widgetImg, "Read table");
+	var gWidgetList = ["readTable", "writeTable", "widget"]; //list of widget types, keys of widget hash
+       
+	var ycoor = 13;   // y coordinate for first menu widget
+	var X_START = 13  // x coor for menu widgets
+ 	var W_WIDTH = 50  // widget width
+ 	var W_HEIGHT = 50 // widget height
+ 	var windex = 1000 // widget index //TODO read in the current windex
+ 	var Y_OFFSET = 25.25 //offset to center clone at start of drag, avg for Safari, Chrome, Firefox
+
+ 	var draggingNew = false; // toggle during drag to create only one widget clone
+ 	var menuBorderX = 200;   // point of no return for widget (see past menu)
+ 	var pastMenu = false;    // toggle to remove cloned widgets not dragged past menu
+ 	var EXTRA_X = 1          // to get new widget entirely over menu border
+ 	
+	//Create widgets in menu area, available to be cloned and moved to data flow area, static block
+	$.each( gWidgetList, function( index, widgetKey ) {//gWidgetList is ordered list of keys
+		var gw = gWidgets[widgetKey]
+		newWidget['widget'+ (++windex)]=gw;
+		// set as map to allow deletions
+		setupArrowWidgetDefault(windex, gw, ycoor)
+		ycoor += 60 //increment Y coordinate of widget in menu display   	
+	});
+ 	
+	// Call Widget to create SVG Widget with dragSrcWidget from static code
+	function setupArrowWidgetDefault(srcIndex, gw, srcYcoor){ //clone skips but uses dragSrcWidget
+		return new Widget(srcIndex, gw, srcYcoor, dragSrcWidget) //unneeded artifact since only one drag
+	}
+	
+  	/*******************  SVG Widget *******************/
+  	// called from static code to set up menu widgets, passed javascript widget id and object
+  	// called from drag move handler when dragging menu creates clone dragged to graph panel
+  	function Widget(srcIndex, gw, srcYcoor, srcDrag){ 
+     	//alert(srcPattern);
+ 	    svg.append("defs").append('pattern')
+ 	    	.attr('id', myPat + srcIndex)  //use index so repeats work
+			.attr('patternUnits', 'userSpaceOnUse')
+			.attr('width', W_WIDTH)
+			.attr('height', W_HEIGHT)
+			.append('svg:image')
+			.attr('xlink:href', gw['backgroundImg'] )
+			.attr('x', 0)
+			.attr('y', 0)
+			.attr('width', W_WIDTH)
+			.attr('height', W_HEIGHT);
+ 	         
+		var transRect = svg.append('rect')
+    		.call(srcDrag)
+    		.attr('widget', "widget" + srcIndex)
+    		.attr('myPat', gw['backgroundImg'])
+    		.attr('x',0)
+   		 	.attr('id','myRect'+ srcIndex)
+   		    .attr('y', 0)
+   		    .attr('width',W_WIDTH)
+   		    .attr('height',W_HEIGHT)
+   		    .attr('fill',"url(#" + (myPat + srcIndex) + ")");
+		    
+			transRect.on('dblclick', function() {
+			  svg.on("mousemove", null);
+  			  confirmRemoveWidget(transRect);
+  	  		});
+
+   		    transRect.attr("transform", "translate(" + X_START + "," + (srcYcoor) + ")");
+      
+ 		for(numIn=0;numIn<gw.inCount;numIn++){
+			wArrow = new Arrow (("widget" + srcIndex), null, true, ++arrowIndex);
+			wArrow.attr("transform", "translate(" + (X_START -10) + "," + (srcYcoor+ W_HEIGHT/2-7) + ")");
+			wArrow.attr("id", "arrow" + arrowIndex);
+			wArrow.attr("indy", arrowIndex);
+      	}
+ 		      
+ 		for(numOut=0;numOut<gw.outCount;numOut++){
+			wArrow = new Arrow (("widget" + srcIndex), null, false, ++arrowIndex);
+			wArrow.attr("transform", "translate(" + (X_START + W_WIDTH) + "," + (srcYcoor+ W_HEIGHT/2-7) + ")");
+			wArrow.attr("id", "arrow" + arrowIndex);
+			wArrow.attr("indy", arrowIndex);
+			console.log("OUT setting #arrow to arrowIndex = " + arrowIndex)
+		}
+      	this.widgetId = srcIndex
+ 		return transRect;      	
+	} 
+ 	 	
+    function removeWidget(widgetRectangle){
+    	removeWindex = widgetRectangle.attr("widget")
+    	removeIndex = widgetRectangle.attr("id")
+    	d3.select("#"+removeIndex).remove();
+      	removeArrows(newWidget[removeWindex]);
+    }
+  	
+
+	
+/***************************************************************************
+*                                                                          *
+*                              LINE LAND                                   *
+*                                                                          *
+***************************************************************************/  
+
+// The on mousedown, mouseup, mouseover are set in arrow section of dragland
+// An on mouseup for svg area also sets remove line		
+
+	// flag to remove line on mouseup if not connected to input arrow
+	var saveLine = false;
+	var lindex = 1000 // line index //TODO read in the current lindex		           
+	var line;
+		
+	var prevLindex =0
+	
+	// set with .on("mousedown", arrowMouseClickOut) in dragArrows, so no lines from menu widgets
+	function arrowMouseClickOut() { //ie the mousedown prop not set until it's being dragged    	    
+		prevLindex = lindex
+		lindex++;
+		saveLine = true;
+		console.log("ARROW mouseclickOut position start of line, lindex = " + lindex)
+	    var arrowOut = d3.select(this);
+	    var myx = arrowOut.attr("xpos");	    
+	    var myy = arrowOut.attr("ypos");
+	    console.log (myx + " " + myy);
+	    line = svg.append("line")//start line at tip of arrowpoint, not mouse position 
+	    	.attr("id", "myline" + lindex)
+	        .attr("x1", Number(myx) +13)
+	        .attr("y1", Number(myy) +7.5)
+	        .attr("x2", Number(myx) +13)
+	        .attr("y2", Number(myy) +7.5)
+       	    .attr("save", 0);
+	    var id = arrowOut.attr("indy")
+	   // alert("id = " + id + " arrows[Number(id)] = " + arrows[Number(id)])
+	    arrows[Number(id)].outLines.push(line);
+	    svg.on("mousemove", mousemove);
+  		//line.on("mousedown", function() { //TODO: on events set here vs. constructor
+  		//  alert("mouse down on line from line land arrowMouseClickOut");
+	  //	})
+	  //	line.on("mouseclick", function() { //TODO: on events set here vs. constructor
+	  //		  alert("mouse click on line from drag land arrowMouseClickOut");
+	  //	})
+	    //waxon= true;
+	}
+	
+	// set with svg.on("mousemove", mousemove) in arrowMouseClickOut() that creates line 
+	function mousemove() {
+		saveLine = false;
+	    var m = d3.mouse(this);
+	    line.attr("x2", m[0]-3)
+	        .attr("y2", m[1]-1);
+  		line.on("mousedown", function() { //TODO: on events set here vs. constructor
+    		  //alert("mouse down on line from line land mousemove");
+  			  confirmRemoveLine(this);
+  	  	})
+  	  	//line.on("mouseclick", function() { //TODO: on events set here vs. constructor
+  	  	//	  alert("mouse click on line from drag land mousemove");
+  	  	//})
+	}
+	// set with .on("mouseover", positionEndpoint) in dragArrows. svg.on("mousemove", null) to prevent lines
+	function positionEndpoint() {  //saveline is false upon ending line, mousemove null stops drawing of lines
+		var obLine = d3.select("#myline" + lindex);
+		if(obLine == "[object SVGLineElement]") {// avoid error, testing for null didn't work
+			saveattr = d3.select("#myline" + lindex).attr("save")		
+			var arrowIn = d3.select(this);
+			var myx = arrowIn.attr("xpos");	    
+		    var myy = arrowIn.attr("ypos");		
+			if(saveattr < 1 ){ //flag only used to prevent connecting to other arrow on later mouseover
+				console.log ("THIS IS IN THE IN CROWD the x and y " + myx + " " + myy + "lindex = " + lindex);
+		       	line.attr("x2", Number(myx))
+		       	line.attr("y2", Number(myy) +7.5);
+		       	line.attr("save", 1); //
+				console.log("mouselickIn set lindex = " + (lindex))
+				var id = arrowIn.attr("indy")
+			    arrows[Number(id)].inLines.push(line);
+				prevlindex = lindex;
+				saveLine = true;
+			    svg.on("mousemove", null);
+			}
+		}
+	}
+	
+	
+	function removeline() {
+		console.log("in removeline, lindex = " + lindex + " object " +d3.select(("#myline" + lindex)) + "saveline = " + saveLine + " prevLindex = "+ prevLindex)
+		var obLine = d3.select("#myline" + lindex);
+		if((!saveLine) && obLine == "[object SVGLineElement]") {//avoid error, test for null didn't work
+			svg.on("mousemove", null);
+			saveattr = obLine.attr("save")
+			console.log("saveattr = "  + saveattr)//			
+			d3.select("#myline" + lindex).remove();
+		}
+	}
+	   //over and out bubble, enter and leave don't, but possibly unsupported 
+	   //http://www.quirksmode.org/dom/events/mouseover.html  
+	   
+	   </script>
+	<!--
+	<script src="//code.jquery.com/ui/1.11.4/jquery-ui.js"></script>
+  <link rel="stylesheet" href="/resources/demos/style.css">
+  	     <link rel="stylesheet" href="//code.jquery.com/ui/1.11.4/themes/smoothness/jquery-ui.css">
+  	     </span>These items will be permanently deleted and cannot be recovered. Are you sure?</p>
+  	     class="ui-icon ui-icon-alert"
+	  --> 
+
+
+  <script>
+  //$(function() {  });
+  function confirmRemoveLine(confirmline) {
+	    $( "#dialog-confirm-line" ).dialog({
+	      resizable: false,
+	      height:1,
+	      width:115,
+	      modal: true,
+	      buttons: {
+	        "Delete": function() {
+	          d3.select(confirmline).remove();	
+	          $( this ).dialog( "close" );
+	        },
+	        Cancel: function() {
+	          $( this ).dialog( "close" );
+	        }
+	      }
+	    });
+	  };
+	  
+	  function confirmRemoveWidget(confirmWidget) {
+		    $( "#dialog-confirm-widget" ).dialog({
+		      resizable: false,
+		      height:1,
+		      width:120,
+		      modal: true,
+		      buttons: {
+		        "Delete": function() {
+		          removeWidget(confirmWidget);	
+		          $( this ).dialog( "close" );
+		        },
+		        Cancel: function() {
+		          $( this ).dialog( "close" );
+		        }
+		      }
+		    });
+		  };
+  </script>
+  	
+  <div id="dialog-confirm-line" title=" Delete selected line?">
+	<p><span  style="float:left;margin:0;padding:0 ">
+  </div>
+	  
+  <div id="dialog-confirm-widget" title=" Delete selected widget?">
+  	<p><span  style="float:left;margin:0;padding:0 ">
+  </div>
+ 
+<script type="text/javascript">
+	   
+ /**************** Lines demarcating sections of screen  *****************/
+
+   var headerline = svg.append("line")
+	  	.style("stroke", "black")
+	  	.attr("x1", 0)
+	  	.attr("y1", 0)
+	  	.attr("x2", 800)
+	  	.attr("y2", 0);
+ 	var headerlineLower = svg.append("line")
+	  	.style("stroke", "black")
+	  	.attr("x1", 0)
+	  	.attr("y1", 2)
+	  	.attr("x2", 800)
+	  	.attr("y2", 2);
+ 	
+ 	var menuline = svg.append("line")
+	  	.style("stroke", "black")
+	  	.attr("x1", menuBorderX)
+	  	.attr("y1", 0)
+	  	.attr("x2", menuBorderX)
+	  	.attr("y2", svgHeight);
+   	var menulineOuter = svg.append("line")
+	  	.style("stroke", "black")
+	  	.attr("x1", menuBorderX +6)
+	  	.attr("y1", 0)
+	  	.attr("x2", menuBorderX +6)
+	  	.attr("y2", svgHeight);
+</script>
+<style>
+	svg {
+		border: 1px solid grey;
+	}
+	
+	line {
+		stroke: steelblue;
+		stroke-width: 4px;
+		stroke-linecap: round;
+	}
+	button:focus {outline:0;} //for Chrome
+</style>	
+</div>
+<div></div>
+<!-- 
+
+Notes to keep track of all the .on uses:
+
+svg on mouseup removeline
+
+DRAG LAND
+var dragSrcWidget  
+	.on("dragstart", function() {
+	.on("drag", dragmoveSrcWidget) -see below
+	.on("dragend", function() { 
+
+function dragmoveSrcWidget(d) {
+	.on("mousedown", function() { 
+
+function dragArrows(gw, x, y){
+	OUT ARROWS
+	.on("mousedown", function() { stopProp
+    .on("mousedown", arrowMouseClickOut)
+    .on("mousedown.drag", null)
+    IN ARROWS
+    .on("mouseup", function() { stopProp
+	.on("mouseover", positionEndpoint)
+
+function dragLinePoints(lines, x, y, isEnd){ 
+	line.on("mousedown", function() {
+
+LINE LAND	
+function positionEndpoint() {
+	svg.on("mousemove", null);
+	
+function removeline() {
+	svg.on("mousemove", null);
+	-->
+
+</body>
